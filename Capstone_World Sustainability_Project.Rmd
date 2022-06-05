@@ -1,0 +1,412 @@
+---
+title: "Capstone - World Sustainability Data Science Project"
+author: "Ammar A. Thuraya"
+date: "6/5/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction 
+In this project, we will use the latest global Sustainability dataset.
+The 'global sustainability' dataset tracks the performance of 173 countries against a range of sustainability metrics over 19 years from 2000 to 2018. The dataset was generated from several merged data sources with real-world data. There are more than 50 fields and many records with missing data in different records in the original dataset. 
+
+This project will measure the evolution and progress towards sustainability across different countries from the year 2000 to 2018. Through the data analysis in this study, we will select a few variables that could affect the progress, namely the following:
+ (1) % of renewable energy consumption out of total energy consumption
+ (2) % of access to electricity out of the total population
+ (3) Annual production-based CO2 emissions in millions of tons
+ (4) the time effect (year)
+ (5) the countries with data points in the dataset
+
+Then, we will do some cleaning on the original dataset, including omitting columns that are not addressed in this study. We will also clean the long field names and replace them with shorter, more meaningful names. Then, we will remove NAs from the dataset and create subsets that are useful for different parts of this project.
+
+Once all work on the datasets is done, we will create a training dataset with +80% of the data records, and the remaining data will be used for the validation and test sets.
+
+Afterward, we will build different models to predict the level of CO2 emissions contributed by different countries in the world, which directly impacts Earth's sustainability. We will start with simpler models that measure different variables' impact like energy, electricity, and time (years.) Then, we will build more advanced models like regularization and neural networks to find more optimum Root Mean Square Error (RMSE) to measure the quality of the implemented models. The less (smaller) the RMSE value, the better the model predicts the target variable results. 
+
+```{r packages and libraries, echo=FALSE, include=FALSE}
+if(!require(dplyr)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
+if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-project.org")
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(kableExtra)) install.packages("kableExtra", repos = "http://cran.us.r-project.org")
+if(!require(Metrics)) install.packages("Metrics", repos = "http://cran.us.r-project.org")
+if (!require("neuralnet")) install.packages("neuralnet", repos = "https://cran.microsoft.com/snapshot/2019-01-01/web/packages/INDperform/index.html")
+
+library(dplyr) 
+library(ggplot2) 
+library(tidyverse) 
+library(caret) 
+library(kableExtra) 
+library(Metrics) 
+library(neuralnet)
+
+```
+
+# Creating the World Sustainability (wsus) and the validation datasets
+
+```{r create wsus subset, echo=FALSE}
+db_file <- 'WorldSustainabilityDataset.csv'
+
+wsus <- read.csv(db_file)
+
+colnames(wsus)[colnames(wsus) == "Country.Name"] <- "country"
+colnames(wsus)[colnames(wsus) == "Country.Code"] <- "countryID"
+colnames(wsus)[colnames(wsus) == "Year"] <- "year"
+colnames(wsus)[colnames(wsus) == "Renewable.energy.consumption....of.total.final.energy.consumption....EG.FEC.RNEW.ZS"] <- "energy"
+colnames(wsus)[colnames(wsus) == "Annual.production.based.emissions.of.carbon.dioxide..CO2...measured.in.million.tonnes"] <- "CO2em"
+colnames(wsus)[colnames(wsus) == "Access.to.electricity....of.population....EG.ELC.ACCS.ZS"] <- "electricity"
+
+wsus_subset <- wsus[ , c('country','countryID','year','CO2em', 
+                         'energy', 'electricity')]
+
+wsus_subset <- na.omit(wsus_subset)
+
+```
+
+Top rows of wsus subset with new selected column names:
+
+```{r wsus subset head, echo=FALSE}
+head(wsus_subset)
+```
+
+
+```{r create wsus 2000-2018 subsets, include=FALSE, echo=FALSE}
+set.seed(1, sample.kind="Rounding")
+
+test_index <- createDataPartition(y = wsus_subset$energy, times = 1, 
+                                  p = 0.15, list = FALSE)
+
+sustain <- wsus_subset[-test_index,]
+validation <- wsus_subset[test_index,]
+
+sustain_2018 <- wsus_subset %>% filter(year == 2018)
+
+sustain_2000 <- wsus_subset %>% filter(year == 2000)
+
+```
+
+Top Renewable Energy Countries in year 2000:
+
+```{r wsus 2000 - energy, echo=FALSE}
+sustain_2000 %>% arrange(desc(energy)) %>% head(5)
+```
+
+Top production-based CO2 emission countries in year 2000:
+
+```{r wsus 2000 - CO2, echo=FALSE}
+sustain_2000 %>% arrange(desc(CO2em)) %>% head(5)
+```
+
+Top Renewable Energy Countries in year 2018:
+
+```{r wsus 2018 subset - energy, echo=FALSE}
+sustain_2018 %>% arrange(desc(energy)) %>% head(5)
+```
+
+Top production-based CO2 emission countries in year 2018:
+
+```{r wsus 2018 subset - CO2, echo=FALSE}
+sustain_2018 %>% arrange(desc(CO2em)) %>% head(5)
+```
+
+# plots
+```{r global energy in 2000 histogram, echo=FALSE}
+wsus_subset_energy <- sustain_2000[ , c('countryID','energy')]
+
+wsus_subset_energy %>% ggplot(aes(energy)) +
+  geom_histogram(bins = 40, color="black") + ylab("count") +
+  xlab("% of Renewable Energy Consumption") +
+  ggtitle("Global Consumption of Renewable Energy - 2000")
+```
+
+```{r global energy in 2018 histogram, echo=FALSE}
+wsus_subset_energy <- sustain_2018[ , c('countryID','energy')]
+
+wsus_subset_energy %>% ggplot(aes(energy)) +
+  geom_histogram(bins = 40, color="black") + ylab("count") +
+  xlab("% of Renewable Energy Consumption") +
+  ggtitle("Global Consumption of Renewable Energy - 2018")
+```
+
+
+Top production-based CO2 emission Countries in 2000 (+5M tons):
+```{r Top CO2em countries in 2000 (higher than 5M tons), echo=FALSE}
+sustain_2000 %>% group_by(country) %>% filter(CO2em >= 5000) %>%
+  summarize(countryID)
+```
+
+Top production-based CO2 emission Countries in 2018 (+5M tons):
+```{r Top CO2em countries in 2018 (higher than 5M tons), echo=FALSE}
+sustain_2018 %>% group_by(country) %>% filter(CO2em >= 5000) %>%
+  summarize(countryID)
+```
+
+# Creating the Prediction Models
+
+```{r Model1 with country effect, echo=FALSE}
+train_set <- sustain
+test_set <- validation
+
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x)))
+}
+
+train_set_numeric <- train_set[, c('energy', 'CO2em', 'electricity')]
+test_set_numeric <- test_set[, c('energy', 'CO2em', 'electricity')]
+
+train_maxmindf <- as.data.frame(lapply(train_set_numeric, normalize))
+test_maxmindf <- as.data.frame(lapply(test_set_numeric, normalize))
+
+train_set <- train_maxmindf %>% mutate(country = train_set$country, countryID = train_set$countryID, year = train_set$year)
+test_set <- test_maxmindf %>% mutate(country = test_set$country, countryID = test_set$countryID, year = test_set$year)
+
+mu <- mean(train_set$CO2em)   
+
+```
+
+# Model 1 - with Countries Global Impact:
+
+```{r M2 Country (b_i) effect}
+
+CO2em_avgs <- train_set %>% group_by(countryID) %>% 
+  summarize(b_i = mean(CO2em - mu)) 
+
+pred_CO2em_M1 <- test_set %>% 
+  left_join(CO2em_avgs, by='countryID') %>%
+  mutate(pred = mu + b_i) %>%
+  pull(pred)
+```
+
+```{r b_i plot and RMSE, echo=FALSE}
+qplot(b_i, geom="histogram", data=CO2em_avgs, color=I("black"), bins=10)
+
+M1_RMSE <- RMSE(pred_CO2em_M1, test_set$CO2em, na.rm=TRUE)
+
+dataframe <- c(R_squared = R2(pred_CO2em_M1, test_set$CO2em, na.rm=TRUE),RMSE = RMSE(pred_CO2em_M1, test_set$CO2em, na.rm=TRUE),
+           MAE = MAE(pred_CO2em_M1, test_set$CO2em, na.rm = TRUE))
+```
+
+## Measuring the Quality of the Model:
+When we use the fitted model to make predictions on new observations, 
+we can use several different metrics to measure the quality of the model, including R-squared, RMSE, and MAE. Following is a brief description of each:
+1. R-squared (Multiple R-squared): measures the strength of the linear relationship between the predictor and the response. The higher the multiple R-squared, the better the predictor variables can predict the response variable.
+2. RMSE (Root Mean Squared Error): measures the average prediction error made by the model in predicting the value for a new observation. This is the average distance between the true value of an observation and the value predicted by the model. Lower values for RMSE indicate a better model fit.
+3. MAE (Mean Absolute Error): measures the average absolute difference 
+between the true value of an observation and the value predicted by 
+the model. This metric is generally less sensitive to outliers 
+than RMSE, and lower values for MAE indicate a better model fit.
+
+## Model 1 Quality Results:
+```{r M1 RMSE Results, echo=FALSE}
+dataframe
+```
+
+
+# Model 2 - with Renewable Energy Effect
+
+```{r M2 Energy (b_en) effect}
+energy_avgs <- train_set %>%
+  left_join(CO2em_avgs, by='countryID') %>%
+  group_by(energy) %>%
+  summarize(b_en = mean(CO2em - mu - b_i)) 
+
+pred_CO2em_M2 <- test_set %>% 
+  left_join(energy_avgs, by='energy') %>%
+  mutate(pred = mu + b_en) %>%
+  pull(pred)
+```
+
+```{r b_en plot and RMSE, echo=FALSE}
+qplot(b_en, geom="histogram", data=energy_avgs, color=I("black"), bins=10)
+
+M2_RMSE <- RMSE(pred_CO2em_M2, test_set$CO2em, na.rm = TRUE)
+
+dataframe <- c(R_squared = R2(pred_CO2em_M2, test_set$CO2em, na.rm=TRUE),
+               RMSE = RMSE(pred_CO2em_M2, test_set$CO2em, na.rm=TRUE),
+               MAE = MAE(pred_CO2em_M2, test_set$CO2em, na.rm = TRUE))
+```
+
+Model 2 Quality Results:
+```{r M2 RMSE results, echo=FALSE}
+dataframe
+
+```
+
+# Model 3 - with Access to Electricity effect
+
+```{r M3 Electricity (b_el) effect}
+electric_avgs <- train_set %>%
+  left_join(CO2em_avgs, by='countryID') %>%
+  group_by(electricity) %>%
+  summarize(b_el = mean(CO2em - mu - b_i)) 
+
+pred_CO2em_M3 <- test_set %>% 
+  left_join(electric_avgs, by='electricity') %>%
+  mutate(pred = mu + b_el) %>%
+  pull(pred)
+```
+
+
+```{r b_el plot and RMSE, echo=FALSE}
+qplot(b_el, geom="histogram", data=electric_avgs, color=I("black"), bins=10)
+
+M3_RMSE <- RMSE(pred_CO2em_M3, test_set$CO2em, na.rm = TRUE)
+
+dataframe <- c(R_squared = R2(pred_CO2em_M3, test_set$CO2em, na.rm=TRUE),
+               RMSE = RMSE(pred_CO2em_M3, test_set$CO2em, na.rm=TRUE),
+               MAE = MAE(pred_CO2em_M3, test_set$CO2em, na.rm = TRUE))
+```
+
+Model 3 Quality Results:
+```{r M3 quality results, echo=FALSE}
+dataframe
+```
+
+# Model 4 - with Time (year) effect
+
+```{r M4 year (b_y) effect}
+year_avgs <- train_set %>%
+  left_join(CO2em_avgs, by='countryID') %>%
+  group_by(year) %>%
+  summarize(b_y = mean(CO2em - mu - b_i)) 
+
+pred_CO2em_M4 <- test_set %>% 
+  left_join(year_avgs, by='year') %>%
+  mutate(pred = mu + b_y) %>%
+  pull(pred)
+```
+
+```{r b_y plot and RMSE, echo=FALSE}
+qplot(b_y, geom="histogram", data=year_avgs, color=I("black"), bins=10)
+
+M4_RMSE <- RMSE(pred_CO2em_M4, test_set$CO2em)
+
+dataframe <- c(R_squared = R2(pred_CO2em_M4, test_set$CO2em),
+               RMSE = RMSE(pred_CO2em_M4, test_set$CO2em),
+               MAE = MAE(pred_CO2em_M4, test_set$CO2em))
+```
+
+Model 4 Quality Results:
+```{r M4 quality results, echo=FALSE}
+dataframe
+```
+
+# Model 5 - using Regularization method
+Our regularization model will use the country, energy, electricity, and time (year) effects. Then, we will tune the overall impact of the regularization term by multiplying its value by a scalar known as lambda (also called the regularization rate.) We will then use 10-folds cross-validation to select the lambda values.
+```{r M5 using regularization}
+lambdas <- 10^seq(0, 100, 0.25)
+
+regularize_RMSEs <- sapply(lambdas, function(l){
+  b_i <- train_set %>%
+    group_by(countryID) %>%
+    summarize(b_i = sum(CO2em - mu)/(n()+l))
+  
+  b_en <- train_set %>% 
+    left_join(b_i, by="countryID") %>%
+    group_by(energy) %>%
+    summarize(b_en = sum(CO2em - b_i - mu)/(n()+l))
+  
+    b_el <- train_set %>% 
+    left_join(b_i, by="countryID") %>%
+    group_by(electricity) %>%
+    summarize(b_el = sum(CO2em - b_i - mu)/(n()+l))
+  
+    b_y <- train_set %>% 
+    left_join(b_i, by="countryID") %>%
+    group_by(year) %>%
+    summarize(b_y = sum(CO2em - b_i - mu)/(n()+l))
+  
+  pred_CO2em <- test_set %>% 
+    left_join(b_i, by = "countryID") %>%
+    left_join(b_y, by="year") %>%
+    left_join(b_en, by = "energy") %>%
+    left_join(b_el, by = "electricity") %>%
+    mutate(pred = mu + b_i + b_y + b_en + b_el) %>% .$pred
+  
+  return(RMSE = RMSE(pred_CO2em, test_set$CO2em, na.rm=TRUE))
+  
+})
+```
+
+```{r M5 lambda plot, echo=FALSE}
+qplot(lambdas, regularize_RMSEs)  
+
+regularized_M5_RMSE <- min(regularize_RMSEs)
+
+```
+
+Minimum Lambda:
+```{r M5 min Lambda, echo=FALSE}
+lambdas[which.min(regularize_RMSEs)]
+```
+
+Model 5 RMSE result:
+```{r M5 RMSE, echo=FALSE}
+regularized_M5_RMSE
+```
+
+# Model 6 - using Neural Network Model
+
+A neural network can be imagined as a system consisting of many highly interconnected nodes, called ‘neurons,’ organized in layers that process information using dynamic state responses to external inputs. A neural network consists of three layers: Input Layer (that takes inputs based on existing data,) Hidden Layer (that optimizes the weights of the input variables in order to improve the predictive power of the model,) and Output Layer (output of predictions based on the data from the input and hidden layers.)
+
+```{r M6 using Neural Network}
+nn <- neuralnet(CO2em ~ energy + electricity, data=train_maxmindf, hidden=c(2,1), linear.output=FALSE, threshold=0.01)
+
+nn$result.matrix 
+```
+
+```{r nn plot, echo=FALSE}
+plot(nn)
+```
+
+```{r M6 testing and results, include=FALSE, echo=FALSE}
+head(test_maxmindf)
+nn.results <- compute(nn, test_maxmindf)
+results <- data.frame(actual = test_maxmindf$CO2em, prediction = nn.results$net.result)
+
+results
+
+nn_quality_results <- c(R_squared = R2(results$actual, results$prediction),
+               RMSE = RMSE(results$actual, results$prediction),
+               MAE = MAE(results$actual, results$prediction))
+
+```
+
+Model 6 Quality Results:
+```{r M6 quality results, echo=FALSE}
+nn_quality_results
+```
+
+# Final RMSE results for all Models
+
+```{r RMSE results, echo=FALSE}
+results_df <- data.frame(M1_RMSE = format(M1_RMSE, digits = 2), 
+                  M2_RMSE = format(M2_RMSE, digits = 2),
+                  M3_RMSE = format(M3_RMSE, digits = 2), 
+                  M4_RMSE = format(M4_RMSE, digits = 2),
+                  M5_RMSE = format(regularized_M5_RMSE, digits = 2), 
+                  M6_RMSE = format(nn_quality_results[2], digits = 2)) 
+
+results_df %>% kable() %>% kable_styling(font_size = 11)
+```
+
+# Results:
+As you can see from the above, we have implemented six different models to measure the global CO2 emission impact and how different countries can impact the global CO2 emissions by considering the time (progress in years), usage of renewable energy %, and access to electricity % effects. Each model generated a different RMSE result, and the Regularization Model generated the most optimized RMSE. In the Regularization model, we have used 10-folds cross validation to select
+the lambda value, and we were able to get the best (minimum) lambda (3.162) and corresponding RMSE (0.0025) outputs of this model.
+
+It is important to note that we have done a lot of data cleansing before
+applying the different machine models to the training dataset. Then, we applied the validation (or test data-subset) to validate the outputs and yield the RMSE values for each model accordingly.
+
+It is also important to note that we scaled the effect variables to have similar scales from 0 to 1 to avoid considerable fluctuation (some columns had percentage values, and some had considerable data variation like the CO2 emissions column in the original set.) That helped get normalized and more consistent views on the data before applying and testing the different models.
+
+# Conclusion and future considerations
+We have used different prediction models to measure the CO2 emissions global impact with different variables that could affect sustainability, like usage of renewable energy, access to electricity, time (year), and the different countries that are driving the impact.
+
+A few other variables could have affected sustainability that was not measured, namely: usage of renewable electricity out of total electricity usage and Natural resources rents, which is the difference between the price of a commodity and the average cost of producing it. The Total natural resources rents are the sum of oil rents, natural gas rents, coal rents, mineral rents, and forest rents. There are many other variables in the dataset that could be helpful to measure and consider in building future prediction models. 
+
+An updated World sustainability dataset should help provide many of the missing values in the current dataset (NAs,) and add the latest years that were not included in this dataset (e.g., from 2018 to 2021.)
